@@ -10,6 +10,9 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import javax.annotation.PostConstruct;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.PersistenceContextType;
 
 import org.apache.log4j.Logger;
 import org.javers.common.collections.Sets;
@@ -24,6 +27,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.data.elasticsearch.repository.ElasticsearchCrudRepository;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.support.Repositories;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.scheduling.annotation.Async;
@@ -38,9 +42,12 @@ import rest.demo.model.jpa.Area;
 import rest.demo.model.jpa.Collection;
 import rest.demo.model.jpa.Material;
 import rest.demo.model.jpa.Section;
+import rest.demo.repository.jpa.CollectionRepository;
 import rest.demo.service.IndexService.FieldSelections.FieldType;
 
 @Service
+@Transactional
+@Async
 public class IndexService {
 
 	Logger logger = Logger.getLogger(this.getClass());
@@ -59,22 +66,28 @@ public class IndexService {
 	
 	private SpelExpressionParser parser = new SpelExpressionParser();
 	
+	@Autowired
+	CollectionRepository collectionRepository;
+	
 	@PostConstruct
 	public void postConstruct() {
 		this.repositories = new Repositories(context);
 	}
 	
-	@Transactional
-	@Async
+
+	@PersistenceContext(type = PersistenceContextType.EXTENDED)
+	private EntityManager entityManager;
+	
+	
 	public void invokeIndex(AbstractEntity o) {
 		
 		try {
+			
 			JpaRepository<? extends AbstractEntity, Long> repository = (JpaRepository) repositories.getRepositoryFor(o.getClass());
-			o = repository.findOne(o.getId());
 			Method m = this.getClass().getDeclaredMethod("index", o.getClass());
 			m.invoke(this, o);
 		} catch(Exception e) {
-			logger.info(String.format("no indexing method available for class %s", o.getClass().getName()));
+			logger.info(e.getMessage());
 		}
 	}
 	
@@ -117,6 +130,7 @@ public class IndexService {
 		return reindex;
 	}
 	
+	
 	private void reindex(AbstractEntity o, FieldSelections selections, Runnable action) {
 		Optional<CdoSnapshot> snapshot = javers.getLatestSnapshot(o.getId(), o.getClass());
 		
@@ -132,6 +146,7 @@ public class IndexService {
 	}
 	
 	private <T extends AbstractEntity, S> void indexPath(String path, T object, Class<S> asClass) {
+		
 		
 		boolean hasRepository = repositories.hasRepositoryFor(asClass);
 		boolean canConvert = conversionService.canConvert(object.getClass(), asClass);
@@ -175,15 +190,7 @@ public class IndexService {
 	private void index(Collection collection) {
 		
 		FieldSelections selections = FieldSelections.of(FieldType.ALL); 
-		
-		JqlQuery query = QueryBuilder.byInstanceId(collection.getId(), collection.getClass()).limit(1).build();
-		Optional<Change> change = javers.findChanges(query).stream().findFirst();
-		
-		if(change.isPresent()) {
-			Change c = change.get();
-			String s = javers.getJsonConverter().toJson(c);
-			System.out.println(s);
-		}
+		String s = javers.getJsonConverter().toJson(collection);
 		
 		Runnable action = () -> {
 			indexPath("materials", collection, IndexedMaterial.class);
@@ -196,20 +203,19 @@ public class IndexService {
 		reindex(collection, selections, action);
 	}
 	
-	@SuppressWarnings("unused")
+	@SuppressWarnings(value={"unused","unchecked"})
 	private void index(Material material) {
 		
 		FieldSelections selections = FieldSelections.of(FieldType.ALL); 
 		
-		JqlQuery query = QueryBuilder.byInstanceId(material.getId(), material.getClass()).limit(1).build();
-		List<Change> change = javers.findChanges(query);
-		
-		String s = javers.getJsonConverter().toJson(change);
-		System.out.println(s);
-		
 		Runnable action = () -> {
 			indexPath("collections", material, IndexedCollection.class);
 		};
+		
+		IndexedMaterial im = conversionService.convert(material, IndexedMaterial.class);
+		ElasticsearchCrudRepository<IndexedMaterial, Long> repository = (ElasticsearchCrudRepository<IndexedMaterial, Long>) repositories.getRepositoryFor(IndexedMaterial.class);
+		repository.save(im);
+		
 		
 		reindex(material, selections, action);
 	}

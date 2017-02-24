@@ -5,17 +5,20 @@ import javax.persistence.PersistenceContext;
 import javax.persistence.PersistenceContextType;
 
 import org.apache.log4j.Logger;
-import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import rest.demo.model.jpa.AbstractEntity;
+import rest.demo.model.jpa.Collection;
+import rest.demo.repository.jpa.CollectionRepository;
 import rest.demo.service.IndexService;
 
-@Component
+@Service
 @Aspect
+@Transactional
 public class RepositoryAdvices {
 
 	Logger logger = Logger.getLogger(this.getClass());
@@ -24,16 +27,23 @@ public class RepositoryAdvices {
 	private EntityManager entityManager;
 	
 	@Autowired
+	CollectionRepository collectionRepository;
+	
+	@Autowired
 	IndexService indexService;
 	
-	@AfterReturning("execution(* rest.demo.repository.jpa.*.save(..)) && args(o)")
-    public void entitiesSave(AbstractEntity o) {
+	@AfterReturning("execution(* rest.demo.repository.jpa.*.save*(..)) && args(o)")
+    public void entitiesSave(AbstractEntity o) throws InterruptedException {
+		
 		logger.info(String.format("save entity of class %s with id %s", o.getClass(), o.getId()));
 		indexService.invokeIndex(o);
+		logger.info(String.format("end of class %s with id %s", o.getClass(), o.getId()));
 	}
 	
-	@AfterReturning("execution(* rest.demo.repository.jpa.*.save(..)) && args(c)")
+	@AfterReturning("execution(* rest.demo.repository.jpa.*.save*(..)) && args(c)")
+	@Transactional
 	public void entitiesSave(Iterable<? extends AbstractEntity> c) {
+		
 		c.forEach(o -> {
 			logger.info(String.format("save entity of class %s with id %s", o.getClass(), o.getId()));
 			indexService.invokeIndex(o);

@@ -27,16 +27,12 @@ public class Collection extends AbstractEntity {
 	
 	private String name;
 	
-	@NotNull
 	@ManyToMany
 	@OrderColumn
-	@JsonIgnore
-	private List<Area> areas = new ArrayList<>();
+	private List<Area> areas = new ArrayList<Area>();
 	
-	@NotNull
 	@ManyToMany
 	@OrderColumn
-	@JsonIgnore
-	private List<Material> materials = new ArrayList<>();
+	private List<Material> materials = new ArrayList<Material>();
 	
 }

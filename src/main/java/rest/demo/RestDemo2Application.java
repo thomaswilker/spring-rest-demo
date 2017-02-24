@@ -11,9 +11,9 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableJpaRepositories(basePackages="rest.demo.repository.jpa")
 @EnableSpringDataWebSupport
 @EnableAspectJAutoProxy(proxyTargetClass=true)
-@EnableAsync
+@EnableAsync(proxyTargetClass=true)
 @EnableElasticsearchRepositories(basePackages = "rest.demo.repository.es")
-@EnableTransactionManagement
+@EnableTransactionManagement(proxyTargetClass=true)
 @SpringBootApplication
 public class RestDemo2Application {
 
