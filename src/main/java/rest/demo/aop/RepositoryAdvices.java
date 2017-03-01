@@ -8,11 +8,13 @@ import org.apache.log4j.Logger;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import lombok.Getter;
 import rest.demo.model.jpa.AbstractEntity;
-import rest.demo.model.jpa.Collection;
 import rest.demo.repository.jpa.CollectionRepository;
 import rest.demo.service.IndexService;
 
@@ -32,11 +34,28 @@ public class RepositoryAdvices {
 	@Autowired
 	IndexService indexService;
 	
+	@Autowired
+    private ApplicationEventPublisher applicationEventPublisher;
+	
+	@Getter
+	public class TestEvent extends ApplicationEvent {
+
+		AbstractEntity entity;
+		
+		public TestEvent(Object source, AbstractEntity entity) {
+			super(source);
+			this.entity = entity;
+		}
+		
+	}
+	
 	@AfterReturning("execution(* rest.demo.repository.jpa.*.save*(..)) && args(o)")
     public void entitiesSave(AbstractEntity o) throws InterruptedException {
 		
 		logger.info(String.format("save entity of class %s with id %s", o.getClass(), o.getId()));
 		indexService.invokeIndex(o);
+		
+		applicationEventPublisher.publishEvent(new TestEvent(this, o));
 		logger.info(String.format("end of class %s with id %s", o.getClass(), o.getId()));
 	}
 	

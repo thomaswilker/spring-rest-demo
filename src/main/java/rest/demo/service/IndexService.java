@@ -78,7 +78,6 @@ public class IndexService {
 	@PersistenceContext(type = PersistenceContextType.EXTENDED)
 	private EntityManager entityManager;
 	
-	
 	public void invokeIndex(AbstractEntity o) {
 		
 		try {
