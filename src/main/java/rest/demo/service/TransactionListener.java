@@ -8,10 +8,11 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.support.Repositories;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-import rest.demo.aop.RepositoryAdvices.TestEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import rest.demo.model.jpa.JpaEntity;
 
 @Component
 public class TransactionListener {
@@ -22,6 +23,9 @@ public class TransactionListener {
 	Repositories repositories;
 	
 	@Autowired
+	IndexService indexService;
+	
+	@Autowired
 	Javers javers;
 	
 	@PostConstruct
@@ -29,13 +33,11 @@ public class TransactionListener {
 		this.repositories = new Repositories(context);
 	}
 	
-	@TransactionalEventListener(phase=TransactionPhase.AFTER_COMMIT)
-	public void listener(TestEvent event) {
+	@TransactionalEventListener(fallbackExecution=true)
+	public void listener(Object o) {
 		
-		System.out.println("------------- index event ---------------");
-		JpaRepository<?, Long> repository = (JpaRepository<?, Long>) repositories.getRepositoryFor(event.getEntity().getClass());
-		Object o = repository.getOne(event.getEntity().getId());
-		System.out.println(javers.getJsonConverter().toJson(o));
+		indexService.invokeIndex((JpaEntity) o);
+		
 		
 	}
 }

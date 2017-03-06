@@ -12,13 +12,16 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import rest.demo.annotation.Indexes;
 import rest.demo.model.es.IndexedMaterial.IndexedMaterialReduced;
+import rest.demo.model.jpa.Collection;
 
 @Getter
 @Setter
 @NoArgsConstructor
 @Document(indexName = "collections", type = "collection" , shards = 1, replicas = 1, indexStoreType = "fs", refreshInterval = "-1")
 @JsonIgnoreProperties(ignoreUnknown=true)
+@Indexes(value=Collection.class, isDefaultIndexClass=true)
 public class IndexedCollection extends IndexedEntity {
 
 	@Field(type=FieldType.String)

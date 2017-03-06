@@ -6,19 +6,17 @@ import java.util.List;
 import javax.persistence.Entity;
 import javax.persistence.ManyToMany;
 import javax.persistence.OrderColumn;
-import javax.validation.constraints.NotNull;
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import rest.demo.annotation.ReIndex;
 
 @Entity
 @Getter
 @Setter
 @NoArgsConstructor
-public class Collection extends AbstractEntity {
+public class Collection extends JpaEntity {
 
 	
 	public Collection(String name) {
@@ -33,6 +31,7 @@ public class Collection extends AbstractEntity {
 	
 	@ManyToMany
 	@OrderColumn
+	@ReIndex
 	private List<Material> materials = new ArrayList<Material>();
 	
 }

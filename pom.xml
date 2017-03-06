@@ -10,7 +10,6 @@
 
 	<name>rest-demo2</name>
 	<description>Demo project for Spring Boot</description>
-
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
@@ -80,6 +79,13 @@
 			<groupId>org.javers</groupId>
 			<artifactId>javers-spring-boot-starter-sql</artifactId>
 			<version>3.0.0</version>
+			
+		</dependency>
+
+		<dependency>
+			<groupId>io.github.lukehutch</groupId>
+			<artifactId>fast-classpath-scanner</artifactId>
+			<version>LATEST</version>
 		</dependency>
 
 	</dependencies>
@@ -92,6 +98,5 @@
 			</plugin>
 		</plugins>
 	</build>
-
-
+	
 </project>

@@ -5,7 +5,7 @@ import javax.persistence.Id;
 import lombok.Data;
 
 @Data
-abstract class IndexedEntity {
+public abstract class IndexedEntity {
 
 	@Id
 	private Long id;

@@ -12,13 +12,16 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import rest.demo.annotation.PropertySelect;
+import rest.demo.annotation.ReIndex;
+import rest.demo.annotation.PropertySelect.SelectType;
 
 @Entity
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class Section extends AbstractEntity {
+public class Section extends JpaEntity {
 	
 	public Section(String name, String slug) {
 		this.setName(name);
@@ -28,8 +31,9 @@ public class Section extends AbstractEntity {
 	private String name;
 	private String slug;
 	
-	@JsonIgnore
+	@Getter(onMethod = @__( @JsonIgnore ))
 	@OneToMany(mappedBy="section")
+	@ReIndex(includePaths="this.collections", conditional=@PropertySelect(type=SelectType.PICK, properties="name"))
 	private List<Area> areas = new ArrayList<>();
 	
 }

@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.converter.Converter;
-import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +34,7 @@ public class MaterialToIndexConverter implements Converter<Material, IndexedMate
 		im.setName(m.getName());
 		im.setDescription(m.getDescription());
 		
+		
 		im.setCollections(m.getCollections().stream().map(c -> {
 			List<Material> materials = c.getMaterials(); 
 			int index = materials.indexOf(m);
@@ -44,7 +44,6 @@ public class MaterialToIndexConverter implements Converter<Material, IndexedMate
 				next = new IndexedMaterialReduced(n.getId(), n.getName());
 			}
 			
-			System.out.println(next.getName());
 			return new IndexedCollectionReduced(c.getId(), c.getName(), next);
 		}).collect(toList()));
 		

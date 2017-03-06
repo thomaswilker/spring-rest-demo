@@ -1,8 +1,10 @@
 package rest.demo.service;
 
-import java.lang.reflect.Method;
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -19,7 +21,6 @@ import org.javers.common.collections.Sets;
 import org.javers.core.Javers;
 import org.javers.core.diff.Change;
 import org.javers.core.metamodel.object.CdoSnapshot;
-import org.javers.repository.jql.JqlQuery;
 import org.javers.repository.jql.QueryBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -27,27 +28,21 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.data.elasticsearch.repository.ElasticsearchCrudRepository;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.support.Repositories;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import lombok.Data;
-import rest.demo.model.es.IndexedCollection;
-import rest.demo.model.es.IndexedMaterial;
-import rest.demo.model.jpa.AbstractEntity;
-import rest.demo.model.jpa.Area;
-import rest.demo.model.jpa.Collection;
-import rest.demo.model.jpa.Material;
-import rest.demo.model.jpa.Section;
-import rest.demo.repository.jpa.CollectionRepository;
-import rest.demo.service.IndexService.FieldSelections.FieldType;
+import io.github.lukehutch.fastclasspathscanner.FastClasspathScanner;
+import rest.demo.annotation.Indexes;
+import rest.demo.annotation.PropertySelect;
+import rest.demo.annotation.ReIndex;
+import rest.demo.model.es.IndexedEntity;
+import rest.demo.model.jpa.JpaEntity;
 
 @Service
 @Transactional
-@Async
 public class IndexService {
 
 	Logger logger = Logger.getLogger(this.getClass());
@@ -66,77 +61,101 @@ public class IndexService {
 	
 	private SpelExpressionParser parser = new SpelExpressionParser();
 	
-	@Autowired
-	CollectionRepository collectionRepository;
+	private Set<Class<?>> jpaEntities = new HashSet<>();
+	private Set<Class<?>> indexedEntities = new HashSet<>();
+
 	
 	@PostConstruct
 	public void postConstruct() {
 		this.repositories = new Repositories(context);
+		FastClasspathScanner scanner = new FastClasspathScanner("rest.demo");
+		
+		List<String> jpa = scanner.scan().getNamesOfSubclassesOf(JpaEntity.class);
+		List<String> indexed = scanner.scan().getNamesOfSubclassesOf(IndexedEntity.class);
+		jpaEntities.addAll(scanner.scan().classNamesToClassRefs(jpa));
+		indexedEntities.addAll(scanner.scan().classNamesToClassRefs(indexed));
 	}
 	
-
 	@PersistenceContext(type = PersistenceContextType.EXTENDED)
 	private EntityManager entityManager;
 	
-	public void invokeIndex(AbstractEntity o) {
-		
-		try {
-			
-			JpaRepository<? extends AbstractEntity, Long> repository = (JpaRepository) repositories.getRepositoryFor(o.getClass());
-			Method m = this.getClass().getDeclaredMethod("index", o.getClass());
-			m.invoke(this, o);
-		} catch(Exception e) {
-			logger.info(e.getMessage());
+	
+	private <E extends JpaEntity> Class<?> getIndexClassForEntityClass(E entity) {
+		for (Class<?> indexedClass : indexedEntities) {
+			Indexes indexes = indexedClass.getDeclaredAnnotation(Indexes.class);
+			if (indexes != null && indexes.isDefaultIndexClass() && indexes.value().isAssignableFrom(entity.getClass()))
+				return indexedClass;
 		}
+		
+		return null;
 	}
 	
-	@Data
-	public static class FieldSelections {
-		private Set<String> values = new HashSet<>();
+	
+	private Stream<String> includePaths(Field f) {
+		ReIndex reIndex = f.getAnnotation(ReIndex.class);
+		String fieldName = f.getName();
+		List<String> paths = Arrays.asList(reIndex.includePaths());
 		
-		public enum  FieldType {
-			OMIT,PICK,ALL
-		}
+		return paths.stream()
+					.map(p -> p.replaceFirst("this", fieldName))
+					.map(p -> asSpelExpr(Arrays.asList(p.split("\\."))));
 		
-		private FieldType type;
-		public boolean hasType(FieldType type) {
-			return this.type.equals(type);
-		}
-		
-		public static FieldSelections of(FieldType type, String... values) {
-			
-			FieldSelections s = new FieldSelections();
-			s.setType(type);
-			s.setValues(Sets.asSet(values));
-			return s;
-		}
+	}
+	
+	private String asSpelExpr(List<String> p) {
+		return p.size() > 1 ? String.format("%s.![%s]", p.get(0), asSpelExpr(p.subList(1, p.size()))) : p.get(0);
 	}
 	
 	
 	
-	private boolean shouldReindex(Optional<CdoSnapshot> snapshot, FieldSelections selections) {
+	@Async
+	@SuppressWarnings("unchecked")
+	public <T extends JpaEntity> void invokeIndex(T o) {
 		
-		boolean reindex = false;
-		if(snapshot.isPresent()) {
+		JpaRepository<? extends JpaEntity, Long> jpaRepository = (JpaRepository<JpaEntity, Long>) repositories.getRepositoryFor(o.getClass());
+		final JpaEntity entity = (T) jpaRepository.findOne(o.getId());
 		
+		index(entity);
+		Arrays.asList(entity.getClass()
+		      .getDeclaredFields())
+			  .stream()
+			  .filter(f -> f.isAnnotationPresent(ReIndex.class) && shouldReindex(entity, f.getAnnotation(ReIndex.class).conditional()))
+			  .flatMap(this::includePaths)
+			  .forEach(p -> indexPath(p, entity));
+		
+	}
+	
+	private <T extends JpaEntity> boolean shouldReindex(T entity, PropertySelect selections) {
+		
+		boolean reindex = true;
+		
+		Optional<CdoSnapshot> snapshot = javers.getLatestSnapshot(entity.getId(), entity.getClass());
+		List<Change> changes = javers.findChanges(QueryBuilder.byInstanceId(entity.getId(), entity.getClass())
+									 .limit(1)
+									 .build());
+		
+		if(changes.size() > 0 && snapshot.isPresent()) {
+			
+			EntityChangeProcessor proc = context.getBean(EntityChangeProcessor.class);
+			
+			Map<Class<?>, List<Change>> changesByClass = javers.processChangeList(changes, proc);
+			System.out.println(javers.getJsonConverter().toJson(changesByClass));
+			
 			Set<String> changesSet = Sets.asSet(snapshot.get().getChanged());
-			Set<String> selectionsSet = selections.getValues();
+			Set<String> selectionsSet = Sets.asSet(selections.properties());
+			
+			logger.info(changesSet);
+			logger.info(selectionsSet);
+			
 			BiFunction<Set<String>, Set<String>, Set<String>> method;
-			method = selections.hasType(FieldType.OMIT) ? Sets::difference : Sets::intersection;
-			reindex = selections.hasType(FieldType.ALL) || method.apply(changesSet, selectionsSet).size() > 0;
+			method = selections.type().equals(PropertySelect.SelectType.OMIT) ? Sets::difference : Sets::intersection;
+			reindex = selections.type().equals(PropertySelect.SelectType.ALL) || method.apply(changesSet, selectionsSet).size() > 0;
+			logger.info(reindex);
 		}
 		
 		return reindex;
 	}
 	
-	
-	private void reindex(AbstractEntity o, FieldSelections selections, Runnable action) {
-		Optional<CdoSnapshot> snapshot = javers.getLatestSnapshot(o.getId(), o.getClass());
-		
-		if(shouldReindex(snapshot, selections)) {
-			action.run();		
-		}
-	}
 	
 	private <T> Stream<T> flatten(Iterable<T> iterable) {
 		
@@ -144,79 +163,22 @@ public class IndexService {
 		return stream.flatMap(e -> e instanceof Iterable ? flatten((Iterable<T>) e) : Stream.of(e));
 	}
 	
-	private <T extends AbstractEntity, S> void indexPath(String path, T object, Class<S> asClass) {
+	private void index(JpaEntity entity) {
 		
+		Class<?> targetClass = getIndexClassForEntityClass(entity);
 		
-		boolean hasRepository = repositories.hasRepositoryFor(asClass);
-		boolean canConvert = conversionService.canConvert(object.getClass(), asClass);
-		if(hasRepository && canConvert) {
-			ElasticsearchCrudRepository<S, Long> repository = (ElasticsearchCrudRepository<S, Long>) repositories.getRepositoryFor(asClass);
-			Set<T> elements = parser.parseExpression(path).getValue(object, Set.class);
-			flatten(elements).map(e -> conversionService.convert(e, asClass)).forEach(i -> repository.save(i));
+		if(targetClass != null && repositories.hasRepositoryFor(targetClass)) {
+			IndexedEntity esObject = (IndexedEntity) conversionService.convert(entity, targetClass);
+			ElasticsearchCrudRepository<IndexedEntity, Long> repository = (ElasticsearchCrudRepository<IndexedEntity, Long>) repositories.getRepositoryFor(targetClass);
+			repository.save(esObject);
 		}
-		
 	}
 	
-	@SuppressWarnings(value={"unused"})
-	private void index(Section section) {
-		
-		FieldSelections selections = FieldSelections.of(FieldType.PICK, "name"); 
-		
-		JqlQuery query = QueryBuilder.byInstanceId(section.getId(), section.getClass()).limit(1).build();
-		List<Change> changes = javers.findChanges(query);
-		
-		
-		Runnable action = () -> {
-			indexPath("areas.![collections]", section, IndexedCollection.class);
-		};
-		
-		reindex(section, selections, action);
+	private <T extends JpaEntity> void indexPath(String path, T object) {
+		System.out.println("path:" + path);
+		Set<T> elements = parser.parseExpression(path).getValue(object, Set.class);
+		flatten(elements).forEach(this::index);
 	}
 	
-	@SuppressWarnings("unused")
-	private void index(Area area) {
-		
-		FieldSelections selections = FieldSelections.of(FieldType.ALL); 
-		
-		Runnable action = () -> {
-			indexPath("areas.![collections]", area, IndexedCollection.class);
-		};
-		
-		reindex(area, selections, action);
-	}
-	
-	@SuppressWarnings(value={"unused","unchecked"})
-	private void index(Collection collection) {
-		
-		FieldSelections selections = FieldSelections.of(FieldType.ALL); 
-		String s = javers.getJsonConverter().toJson(collection);
-		
-		Runnable action = () -> {
-			indexPath("materials", collection, IndexedMaterial.class);
-		};
-		
-		IndexedCollection ic = conversionService.convert(collection, IndexedCollection.class);
-		ElasticsearchCrudRepository<IndexedCollection, Long> repository = (ElasticsearchCrudRepository<IndexedCollection, Long>) repositories.getRepositoryFor(IndexedCollection.class);
-		repository.save(ic);
-		
-		reindex(collection, selections, action);
-	}
-	
-	@SuppressWarnings(value={"unused","unchecked"})
-	private void index(Material material) {
-		
-		FieldSelections selections = FieldSelections.of(FieldType.ALL); 
-		
-		Runnable action = () -> {
-			indexPath("collections", material, IndexedCollection.class);
-		};
-		
-		IndexedMaterial im = conversionService.convert(material, IndexedMaterial.class);
-		ElasticsearchCrudRepository<IndexedMaterial, Long> repository = (ElasticsearchCrudRepository<IndexedMaterial, Long>) repositories.getRepositoryFor(IndexedMaterial.class);
-		repository.save(im);
-		
-		
-		reindex(material, selections, action);
-	}
 	
 }

@@ -97,12 +97,7 @@ public class InitializationService implements ApplicationRunner {
 		saveCollection("Kavitation", Arrays.asList(maschinenbau), Arrays.asList());
 		saveCollection("Technische Fluidsysteme", Arrays.asList(maschinenbau), Arrays.asList());
 		
-		System.out.println(v1.getCollections().size());
-		
 		System.out.println("---------- End transaction ----------");
-		
-		//c1.getAreas().forEach(x -> System.out.println(x.getName()));
-		//c1.setMaterials(Lists.asList(m1,m2,m3));
 		
 	}
 	
