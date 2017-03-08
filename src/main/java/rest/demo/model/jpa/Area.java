@@ -3,6 +3,7 @@ package rest.demo.model.jpa;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.persistence.CascadeType;
 import javax.persistence.Entity;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToMany;
@@ -14,9 +15,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import rest.demo.annotation.PropertySelect;
 import rest.demo.annotation.ReIndex;
-import rest.demo.annotation.PropertySelect.SelectType;
 
 @Entity
 @Getter

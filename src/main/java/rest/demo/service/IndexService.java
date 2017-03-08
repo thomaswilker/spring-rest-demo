@@ -21,6 +21,7 @@ import org.javers.common.collections.Sets;
 import org.javers.core.Javers;
 import org.javers.core.diff.Change;
 import org.javers.core.metamodel.object.CdoSnapshot;
+import org.javers.core.metamodel.object.InstanceId;
 import org.javers.repository.jql.QueryBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -64,12 +65,11 @@ public class IndexService {
 	private Set<Class<?>> jpaEntities = new HashSet<>();
 	private Set<Class<?>> indexedEntities = new HashSet<>();
 
+	private FastClasspathScanner scanner = new FastClasspathScanner("rest.demo");
 	
 	@PostConstruct
 	public void postConstruct() {
 		this.repositories = new Repositories(context);
-		FastClasspathScanner scanner = new FastClasspathScanner("rest.demo");
-		
 		List<String> jpa = scanner.scan().getNamesOfSubclassesOf(JpaEntity.class);
 		List<String> indexed = scanner.scan().getNamesOfSubclassesOf(IndexedEntity.class);
 		jpaEntities.addAll(scanner.scan().classNamesToClassRefs(jpa));
@@ -80,10 +80,10 @@ public class IndexService {
 	private EntityManager entityManager;
 	
 	
-	private <E extends JpaEntity> Class<?> getIndexClassForEntityClass(E entity) {
+	private <E extends JpaEntity> Class<?> getIndexClassForEntityClass(Class<E> entityClass) {
 		for (Class<?> indexedClass : indexedEntities) {
 			Indexes indexes = indexedClass.getDeclaredAnnotation(Indexes.class);
-			if (indexes != null && indexes.isDefaultIndexClass() && indexes.value().isAssignableFrom(entity.getClass()))
+			if (indexes != null && indexes.isDefaultIndexClass() && indexes.value().isAssignableFrom(entityClass))
 				return indexedClass;
 		}
 		
@@ -110,42 +110,42 @@ public class IndexService {
 	
 	@Async
 	@SuppressWarnings("unchecked")
-	public <T extends JpaEntity> void invokeIndex(T o) {
+	public <T extends JpaEntity> void invokeIndex(Class<T> entityClass, Long id) {
 		
-		JpaRepository<? extends JpaEntity, Long> jpaRepository = (JpaRepository<JpaEntity, Long>) repositories.getRepositoryFor(o.getClass());
-		final JpaEntity entity = (T) jpaRepository.findOne(o.getId());
+		List<Change> changes = javers.findChanges(QueryBuilder.byInstanceId(id, entityClass)
+				 .limit(1)
+				 .build());
+
+		EntityChangeProcessor proc = context.getBean(EntityChangeProcessor.class, javers);
+		propertyChanges = javers.processChangeList(changes, proc);
 		
-		index(entity);
-		Arrays.asList(entity.getClass()
+		T entity = index(entityClass, id);
+		Arrays.asList(entityClass
 		      .getDeclaredFields())
 			  .stream()
-			  .filter(f -> f.isAnnotationPresent(ReIndex.class) && shouldReindex(entity, f.getAnnotation(ReIndex.class).conditional()))
+			  .filter(f -> f.isAnnotationPresent(ReIndex.class) && shouldReindex(entityClass, id, f.getAnnotation(ReIndex.class).conditional()))
 			  .flatMap(this::includePaths)
 			  .forEach(p -> indexPath(p, entity));
 		
 	}
 	
-	private <T extends JpaEntity> boolean shouldReindex(T entity, PropertySelect selections) {
+	private Map<String, Set<InstanceId>> propertyChanges;
+	
+	private <T extends JpaEntity> boolean shouldReindex(Class<?> entityClass, Long id, PropertySelect selections) {
 		
 		boolean reindex = true;
 		
-		Optional<CdoSnapshot> snapshot = javers.getLatestSnapshot(entity.getId(), entity.getClass());
-		List<Change> changes = javers.findChanges(QueryBuilder.byInstanceId(entity.getId(), entity.getClass())
+		Optional<CdoSnapshot> snapshot = javers.getLatestSnapshot(id, entityClass);
+		List<Change> changes = javers.findChanges(QueryBuilder.byInstanceId(id, entityClass)
 									 .limit(1)
 									 .build());
 		
 		if(changes.size() > 0 && snapshot.isPresent()) {
 			
-			EntityChangeProcessor proc = context.getBean(EntityChangeProcessor.class);
-			
-			Map<Class<?>, List<Change>> changesByClass = javers.processChangeList(changes, proc);
-			System.out.println(javers.getJsonConverter().toJson(changesByClass));
 			
 			Set<String> changesSet = Sets.asSet(snapshot.get().getChanged());
 			Set<String> selectionsSet = Sets.asSet(selections.properties());
 			
-			logger.info(changesSet);
-			logger.info(selectionsSet);
 			
 			BiFunction<Set<String>, Set<String>, Set<String>> method;
 			method = selections.type().equals(PropertySelect.SelectType.OMIT) ? Sets::difference : Sets::intersection;
@@ -163,21 +163,40 @@ public class IndexService {
 		return stream.flatMap(e -> e instanceof Iterable ? flatten((Iterable<T>) e) : Stream.of(e));
 	}
 	
-	private void index(JpaEntity entity) {
+	private <T extends JpaEntity> T index(Class<T> entityClass, Long id) {
 		
-		Class<?> targetClass = getIndexClassForEntityClass(entity);
+		JpaRepository<? extends JpaEntity, Long> jpaRepository = (JpaRepository<JpaEntity, Long>) repositories.getRepositoryFor(entityClass);
+		T entity = (T) jpaRepository.findOne(id);
+		Class<?> targetClass = getIndexClassForEntityClass(entityClass);
 		
 		if(targetClass != null && repositories.hasRepositoryFor(targetClass)) {
+			
 			IndexedEntity esObject = (IndexedEntity) conversionService.convert(entity, targetClass);
 			ElasticsearchCrudRepository<IndexedEntity, Long> repository = (ElasticsearchCrudRepository<IndexedEntity, Long>) repositories.getRepositoryFor(targetClass);
 			repository.save(esObject);
 		}
+		
+		return entity;
 	}
 	
-	private <T extends JpaEntity> void indexPath(String path, T object) {
+	private <T extends JpaEntity> void indexPath(String path, T entity) {
 		System.out.println("path:" + path);
-		Set<T> elements = parser.parseExpression(path).getValue(object, Set.class);
-		flatten(elements).forEach(this::index);
+		String property = path.split("\\.")[0];
+		
+		if(propertyChanges.containsKey(property)) {
+			propertyChanges.get(property).forEach(e -> {
+				Class<? extends JpaEntity> cClass;
+				try {
+					cClass = Class.forName(e.getTypeName()).asSubclass(JpaEntity.class);
+					index(cClass, (long) e.getCdoId());
+				} catch (Exception e1) {
+					e1.printStackTrace();
+				}
+			});
+		}
+		
+		Set<T> elements = parser.parseExpression(path).getValue(entity, Set.class);
+		flatten(elements).forEach(e -> index(e.getClass(), e.getId()));
 	}
 	
 	

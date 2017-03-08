@@ -20,7 +20,6 @@ import rest.demo.model.jpa.Collection;
 @Setter
 @NoArgsConstructor
 @Document(indexName = "collections", type = "collection" , shards = 1, replicas = 1, indexStoreType = "fs", refreshInterval = "-1")
-@JsonIgnoreProperties(ignoreUnknown=true)
 @Indexes(value=Collection.class, isDefaultIndexClass=true)
 public class IndexedCollection extends IndexedEntity {
 

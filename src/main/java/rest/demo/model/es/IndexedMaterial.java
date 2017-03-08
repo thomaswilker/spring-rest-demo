@@ -20,7 +20,6 @@ import rest.demo.model.jpa.Material;
 @AllArgsConstructor
 @NoArgsConstructor
 @Document(indexName = "materials", type = "material" , shards = 1, replicas = 1, indexStoreType = "fs", refreshInterval = "-1")
-@JsonIgnoreProperties(ignoreUnknown=true)
 @Indexes(value=Material.class, isDefaultIndexClass=true)
 public class IndexedMaterial extends IndexedEntity {
 

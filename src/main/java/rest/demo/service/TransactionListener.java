@@ -36,8 +36,7 @@ public class TransactionListener {
 	@TransactionalEventListener(fallbackExecution=true)
 	public void listener(Object o) {
 		
-		indexService.invokeIndex((JpaEntity) o);
-		
-		
+		JpaEntity entity = (JpaEntity) o;
+		indexService.invokeIndex(entity.getClass(), entity.getId());
 	}
 }

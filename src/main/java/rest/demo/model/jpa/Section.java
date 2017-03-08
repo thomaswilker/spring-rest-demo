@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.OneToMany;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -32,7 +33,7 @@ public class Section extends JpaEntity {
 	private String slug;
 	
 	@Getter(onMethod = @__( @JsonIgnore ))
-	@OneToMany(mappedBy="section")
+	@OneToMany(fetch=FetchType.LAZY,mappedBy="section")
 	@ReIndex(includePaths="this.collections", conditional=@PropertySelect(type=SelectType.PICK, properties="name"))
 	private List<Area> areas = new ArrayList<>();
 	
