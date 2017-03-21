@@ -11,12 +11,13 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.AuthenticationUserDetailsService;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 /**
  * Authenticate a user from the database.
  */
-public class CustomUserDetailsService implements AuthenticationUserDetailsService<CasAssertionAuthenticationToken> {
+public class CustomUserDetailsService implements UserDetailsService, AuthenticationUserDetailsService<CasAssertionAuthenticationToken> {
 
 	
 	
@@ -36,21 +37,14 @@ public class CustomUserDetailsService implements AuthenticationUserDetailsServic
 		this.admins = admins;
 	}
 
-	@Override
-	public UserDetails loadUserDetails(CasAssertionAuthenticationToken token) throws UsernameNotFoundException {
-		
-		String login = token.getPrincipal().toString();
-		String lowercaseLogin = login.toLowerCase();
-
-		log.debug("Authenticating '{}'", login);
+	
+	private UserDetails getDetails(String username) {
+	
 		List<GrantedAuthority> grantedAuthorities = new ArrayList<GrantedAuthority>();
-		System.out.println("login with id " + login);
-		if (admins != null && admins.contains(lowercaseLogin)) {
-			System.out.println(lowercaseLogin);
+		if (admins != null && admins.contains(username)) {
 			grantedAuthorities.add(new SimpleGrantedAuthority(AuthoritiesConstants.ADMIN));
 		} else {
 			
-			System.out.println("else ");
 			grantedAuthorities.add(new GrantedAuthority() {
 				private static final long serialVersionUID = 1L;
 
@@ -60,7 +54,21 @@ public class CustomUserDetailsService implements AuthenticationUserDetailsServic
 				}
 			});
 		}
+		
+		return new AppUserDetails(username, grantedAuthorities);
+	}
+	
+	@Override
+	public UserDetails loadUserDetails(CasAssertionAuthenticationToken token) throws UsernameNotFoundException {
+		
+		String username = token.getPrincipal().toString().toLowerCase();
+		
+		return getDetails(username);
+	}
 
-		return new AppUserDetails(lowercaseLogin, grantedAuthorities);
+	@Override
+	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+		
+		return getDetails(username);
 	}
 }
