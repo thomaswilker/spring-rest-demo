@@ -49,7 +49,7 @@ public class WebConfig extends RepositoryRestMvcConfiguration {
 	@Override
 	protected void configureRepositoryRestConfiguration(RepositoryRestConfiguration config) {
 		
-		//config.setBasePath("api");
+		config.setBasePath("api");
 		
 		List<Class<?>> classes = Arrays.asList(
 				IndexedCollection.class,

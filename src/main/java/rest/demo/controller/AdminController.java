@@ -2,14 +2,15 @@ package rest.demo.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.ModelAndView;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Controller
@@ -20,14 +21,17 @@ public class AdminController {
 	private ObjectMapper mapper;
 	
 	@RequestMapping("/auth")
-	public @ResponseBody String showAuth() throws JsonProcessingException {
+	public ResponseEntity<Authentication> showAuth() {
 		
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-		return mapper.writeValueAsString(auth);
+		
+		boolean isAdmin = auth.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_ADMIN"));
+		HttpStatus status = isAdmin ? HttpStatus.OK : HttpStatus.FORBIDDEN;
+		return new ResponseEntity<Authentication>(auth, status);
 	}
 	
 	private String asJson(Object o) {
-		String json = "none";
+		String json = null;
 		try { json = mapper.writeValueAsString(o); } 
 		catch (Exception e) { e.printStackTrace(); }
 		return json;

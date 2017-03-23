@@ -34,12 +34,7 @@ public class TransactionListener {
 	}
 	
 	@TransactionalEventListener(fallbackExecution=true)
-	public void listener(Object o) {
-		
-		if(o.getClass().isAssignableFrom(JpaEntity.class)) {
-			JpaEntity entity = (JpaEntity) o;
-			indexService.invokeIndex(entity.getClass(), entity.getId());
-		}
-		
+	public void listener(JpaEntity e) {
+		indexService.invokeIndex(e.getClass(), e.getId());
 	}
 }

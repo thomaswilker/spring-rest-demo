@@ -1,12 +1,18 @@
 package rest.demo;
 
+import java.io.IOException;
 import java.util.Set;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import org.jasig.cas.client.session.SingleSignOutFilter;
 import org.jasig.cas.client.validation.Cas20ServiceTicketValidator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.cas.ServiceProperties;
 import org.springframework.security.cas.authentication.CasAuthenticationProvider;
 import org.springframework.security.cas.web.CasAuthenticationEntryPoint;
@@ -15,9 +21,11 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.access.channel.ChannelProcessingFilter;
 import org.springframework.security.web.access.intercept.FilterSecurityInterceptor;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
@@ -25,6 +33,8 @@ import org.springframework.security.web.authentication.session.SessionFixationPr
 import org.springframework.security.web.authentication.switchuser.SwitchUserFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -139,27 +149,40 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 		.addFilterAfter(switchUserFilter(), FilterSecurityInterceptor.class)
 		.addFilterBefore(corsFilter(), ChannelProcessingFilter.class);
 		
-		http.csrf().csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse());
 		
 		http.exceptionHandling().defaultAuthenticationEntryPointFor(casAuthenticationEntryPoint(), new AntPathRequestMatcher("/admin/**"));
 		
-		//http.csrf().disable().headers().frameOptions().disable();
-		
+		http.csrf().csrfTokenRepository(csrfTokenRepository());
 		http.headers().frameOptions().disable();
-		http.formLogin().defaultSuccessUrl("/admin");
+		
+		http.formLogin()
+			.successForwardUrl("/auth")
+			.failureHandler((req, res, ex) -> { 
+				res.sendError(HttpStatus.FORBIDDEN.value(), "Login fehlgeschlagen");
+			});
+		
+		http.authorizeRequests().antMatchers("/api/**").hasRole("ADMIN");
 		
 		http.authorizeRequests()
-			.antMatchers("/logout/impersonate*").authenticated()
-			.antMatchers("/login/impersonate*").hasRole("ADMIN")
+			.antMatchers("/impersonate/logout/*").authenticated()
+			.antMatchers("/impersonate/login/*").hasRole("ADMIN")
 			.antMatchers("/admin/**").hasRole("ADMIN");
 		
 		http.logout()
-			.logoutUrl("/logout")
-			.logoutSuccessUrl("/")
+			.logoutUrl("/logut")
+			.logoutSuccessUrl("/auth")
 			.invalidateHttpSession(true)
-			.deleteCookies("JSESSIONID");
+			.deleteCookies("JSESSIONID")
+			.permitAll();
 	}
 
+	
+	private CsrfTokenRepository csrfTokenRepository() {
+		  HttpSessionCsrfTokenRepository repository = new HttpSessionCsrfTokenRepository();
+		  repository.setHeaderName("X-XSRF-TOKEN");
+		  return repository;
+	}
+	
 	@Override
     public void configure(AuthenticationManagerBuilder auth) throws Exception {
         auth.authenticationProvider(casAuthenticationProvider());
