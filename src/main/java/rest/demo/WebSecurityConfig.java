@@ -127,8 +127,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 		
 		String logoutUrl = String.format("%s?service=%s", casServerLogout, casServiceHome);
 		LogoutFilter logoutFilter = new LogoutFilter(logoutUrl, new SecurityContextLogoutHandler());
-		logoutFilter.setFilterProcessesUrl("/logout");
-		logoutFilter.setLogoutRequestMatcher(new AntPathRequestMatcher("/logout", "GET"));
+		logoutFilter.setLogoutRequestMatcher(new AntPathRequestMatcher("/casLogout", "GET"));
 		return logoutFilter;
 	}
 	
@@ -145,10 +144,9 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 		.addFilterAfter(csrfFilter(), CsrfFilter.class)
 		.addFilter(casAuthenticationFilter())
 		.addFilterBefore(singleSignOutFilter(), CasAuthenticationFilter.class)
-		.addFilterBefore(requestCasGlobalLogoutFilter(), LogoutFilter.class)
+		.addFilterAfter(requestCasGlobalLogoutFilter(), LogoutFilter.class)
 		.addFilterAfter(switchUserFilter(), FilterSecurityInterceptor.class)
 		.addFilterBefore(corsFilter(), ChannelProcessingFilter.class);
-		
 		
 		http.exceptionHandling().defaultAuthenticationEntryPointFor(casAuthenticationEntryPoint(), new AntPathRequestMatcher("/admin/**"));
 		
@@ -161,19 +159,22 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 				res.sendError(HttpStatus.FORBIDDEN.value(), "Login fehlgeschlagen");
 			});
 		
-		http.authorizeRequests().antMatchers("/api/**").hasRole("ADMIN");
+		http.authorizeRequests().antMatchers("/api/**").permitAll();
+		
+		http.authorizeRequests().antMatchers("/ws/**").permitAll();
 		
 		http.authorizeRequests()
 			.antMatchers("/impersonate/logout/*").authenticated()
 			.antMatchers("/impersonate/login/*").hasRole("ADMIN")
 			.antMatchers("/admin/**").hasRole("ADMIN");
 		
-		http.logout()
-			.logoutUrl("/logut")
-			.logoutSuccessUrl("/auth")
-			.invalidateHttpSession(true)
-			.deleteCookies("JSESSIONID")
-			.permitAll();
+//		http.logout()
+//			.clearAuthentication(true)
+//			.logoutSuccessUrl("/auth")
+//			.invalidateHttpSession(true)
+//			.deleteCookies("JSESSIONID")
+//			.permitAll();
+		
 	}
 
 	

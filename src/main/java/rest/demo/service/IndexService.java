@@ -35,6 +35,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.github.lukehutch.fastclasspathscanner.FastClasspathScanner;
 import rest.demo.annotation.Indexes;
 import rest.demo.annotation.PropertySelect;
@@ -56,6 +59,10 @@ public class IndexService {
 	
 	@Autowired
 	Javers javers;
+	
+	@Qualifier("objectMapper")
+	@Autowired
+	ObjectMapper mapper;
 	
 	@Autowired
 	ApplicationContext context;
@@ -110,7 +117,10 @@ public class IndexService {
 	
 	@Async
 	@SuppressWarnings("unchecked")
-	public <T extends JpaEntity> void invokeIndex(Class<T> entityClass, Long id) {
+	public <I extends IndexedEntity> I invokeIndex(JpaEntity entity) {
+		
+		Class<?> entityClass = entity.getClass();
+		Long id = entity.getId();
 		
 		List<Change> changes = javers.findChanges(QueryBuilder.byInstanceId(id, entityClass)
 				 .limit(1)
@@ -119,13 +129,22 @@ public class IndexService {
 		EntityChangeProcessor proc = context.getBean(EntityChangeProcessor.class, javers);
 		propertyChanges = javers.processChangeList(changes, proc);
 		
-		T entity = index(entityClass, id);
+		//T entity = findOne(entityClass, id);
+		I indexedEntity = index(entity);
+		
 		Arrays.asList(entityClass
 		      .getDeclaredFields())
 			  .stream()
 			  .filter(f -> f.isAnnotationPresent(ReIndex.class) && shouldReindex(entityClass, id, f.getAnnotation(ReIndex.class).conditional()))
 			  .flatMap(this::includePaths)
 			  .forEach(p -> indexPath(p, entity));
+		
+		if(indexedEntity != null)
+			logger.info("return indexedEntity " + indexedEntity.getId());
+		else
+			logger.info("return indexedEntity none");
+			
+		return indexedEntity;
 		
 	}
 	
@@ -163,24 +182,32 @@ public class IndexService {
 		return stream.flatMap(e -> e instanceof Iterable ? flatten((Iterable<T>) e) : Stream.of(e));
 	}
 	
-	private <T extends JpaEntity> T index(Class<T> entityClass, Long id) {
-		
+	private <T extends JpaEntity> T findOne(Class<T> entityClass, Long id) {
 		JpaRepository<? extends JpaEntity, Long> jpaRepository = (JpaRepository<JpaEntity, Long>) repositories.getRepositoryFor(entityClass);
 		T entity = (T) jpaRepository.findOne(id);
-		Class<?> targetClass = getIndexClassForEntityClass(entityClass);
+		return entity;
+	}
+	
+	
+	private <I extends IndexedEntity, T extends JpaEntity> I index(T entity) {
 		
+		Class<?> targetClass = getIndexClassForEntityClass(entity.getClass());
+		
+		I indexedEntity = null;
 		if(targetClass != null && repositories.hasRepositoryFor(targetClass)) {
 			
 			IndexedEntity esObject = (IndexedEntity) conversionService.convert(entity, targetClass);
 			ElasticsearchCrudRepository<IndexedEntity, Long> repository = (ElasticsearchCrudRepository<IndexedEntity, Long>) repositories.getRepositoryFor(targetClass);
 			repository.save(esObject);
+			indexedEntity = (I) esObject;
 		}
 		
-		return entity;
+		return indexedEntity;
 	}
 	
 	private <T extends JpaEntity> void indexPath(String path, T entity) {
-		System.out.println("path:" + path);
+		
+		logger.info(path);
 		String property = path.split("\\.")[0];
 		
 		if(propertyChanges.containsKey(property)) {
@@ -188,15 +215,15 @@ public class IndexService {
 				Class<? extends JpaEntity> cClass;
 				try {
 					cClass = Class.forName(e.getTypeName()).asSubclass(JpaEntity.class);
-					index(cClass, (long) e.getCdoId());
+					index(findOne(cClass, (long) e.getCdoId()));
 				} catch (Exception e1) {
-					e1.printStackTrace();
+					//e1.printStackTrace();
 				}
 			});
 		}
 		
 		Set<T> elements = parser.parseExpression(path).getValue(entity, Set.class);
-		flatten(elements).forEach(e -> index(e.getClass(), e.getId()));
+		flatten(elements).forEach(e -> index(findOne(e.getClass(), e.getId())));
 	}
 	
 	
